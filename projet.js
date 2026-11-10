@@ -198,3 +198,6 @@ EXOS.push(
  cons:["Réagir tout de suite à la perte","Trouver l'espace libre","Parler en permanence"],
  var:["2 touches maximum","Carré plus petit pour plus d'intensité"]}
 );
+
+// Chargement des animations
+document.write('<script src="anim.js?v=3"><\/script>');
