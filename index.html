@@ -127,6 +127,19 @@ input.in:focus,select.in:focus,textarea.in:focus{border-color:var(--pitch)}
 .themebars .r b{width:110px;font-weight:700}
 .themebars .r .bar{flex:1;margin:0;height:10px}
 .themebars .r i{background:linear-gradient(90deg,var(--pitch),#3aa66f)}
+.cchip{display:inline-block;color:#fff;font-size:11px;font-weight:800;padding:2px 7px;border-radius:99px;margin:0 4px 2px 0}
+.pchips{display:flex;flex-wrap:wrap;gap:6px}.pchips span{background:#e6f2ea;color:var(--dark);font-size:13px;font-weight:700;padding:5px 10px;border-radius:99px}
+.prin{background:#fff;border-radius:14px;padding:12px 14px;margin-bottom:8px}.prin.off{opacity:.5}
+.prin .ph{display:flex;gap:8px;align-items:flex-start}.prin .ph b{flex:1;font-size:15.5px}
+.prin .cnt{font-size:12px;font-weight:800;background:#eef2ec;border-radius:99px;padding:2px 8px;color:var(--pitch)}
+.prin p{margin:4px 0 6px;font-size:14px;color:#33463b}
+.mots{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px}.mots span{font-size:12.5px;font-weight:700;color:#8a6500;background:#fff6d6;border-radius:8px;padding:2px 7px}
+.prin .pf{display:flex;align-items:center;gap:6px}.prin .pf>div:first-child{flex:1}
+.prin .acts{display:flex;gap:4px;align-items:center}.prin .acts button{width:34px;height:34px;border-radius:10px;background:#eef2ec}
+.prin .acts button.go{width:auto;padding:0 10px;background:var(--accent);color:var(--accent-ink);font-weight:800;font-size:13px}
+.week .wn{width:42px;height:42px;border-radius:12px;background:var(--dark);color:var(--accent);display:grid;place-items:center;font-weight:800}
+.week.cur{outline:3px solid var(--accent)}
+nav.tabs button{font-size:11px}
 </style>
 </head>
 <body>
@@ -142,6 +155,7 @@ input.in:focus,select.in:focus,textarea.in:focus{border-color:var(--pitch)}
 <nav class="tabs">
   <button data-tab="accueil" class="on"><span>🏠</span>Accueil</button>
   <button data-tab="idees"><span>💡</span>Idées</button>
+  <button data-tab="projet"><span>🧠</span>Projet</button>
   <button data-tab="seances"><span>📋</span>Séances</button>
   <button data-tab="effectif"><span>👥</span>Effectif</button>
 </nav>
@@ -149,7 +163,8 @@ input.in:focus,select.in:focus,textarea.in:focus{border-color:var(--pitch)}
 <div class="ov" id="ov"><div class="sheet" id="sheet"></div></div>
 <div class="toast" id="toast"></div>
 
-<script src="exos.js?v=1"></script>
+<script src="exos.js?v=2"></script>
+<script src="projet.js?v=2"></script>
 <script>
 // ================== STOCKAGE ==================
 const KEY = "coachfoot-v1";
@@ -159,6 +174,10 @@ const defaultState = () => ({
 });
 let S;
 try { S = Object.assign(defaultState(), JSON.parse(localStorage.getItem(KEY)||"{}")); } catch(e){ S = defaultState(); }
+function defaultProjet(){ return {identite:"Une équipe qui veut le ballon, qui relance court avec courage, qui presse ensemble dès la perte et qui ose dans les 30 derniers mètres.", systeme:"3-3-1", principes:JSON.parse(JSON.stringify(PRINCIPES_DEFAUT)).map(p=>({...p,actif:true})), debut:"", coachs:["LE","CF","PG","ZZ"]}; }
+if(!S.projet) S.projet = defaultProjet();
+if(!S.settings.format) S.settings.format = "8";
+S.seances.forEach(x=>{ if(!x.prin) x.prin=[]; });
 function save(){ try{ localStorage.setItem(KEY, JSON.stringify(S)); }catch(e){} }
 
 // ================== OUTILS ==================
@@ -172,6 +191,11 @@ const exoById = id => EXOS.find(e=>e.id===id);
 const rand = a => a[Math.floor(Math.random()*a.length)];
 function toast(m){ const t=$("#toast"); t.textContent=m; t.classList.add("show"); clearTimeout(t._h); t._h=setTimeout(()=>t.classList.remove("show"),2000); }
 const okCat = e => S.settings.cat>=e.min && S.settings.cat<=e.max;
+const prinById = id => S.projet.principes.find(p=>p.id===id);
+const prinActifs = () => S.projet.principes.filter(p=>p.actif);
+const coachChips = arr => (arr||[]).filter(c=>COACHS[c]).map(c=>`<span class="cchip" style="background:${COACHS[c].coul}">${COACHS[c].nom.split(" ").pop()}</span>`).join("");
+function semainePlan(){ const d=S.projet.debut; if(!d) return null; const n=Math.floor((new Date(today()+"T12:00:00")-new Date(d+"T12:00:00"))/864e5/7); if(n<0) return null; return {n:n+1, w:PLAN[n%PLAN.length], cycle:Math.floor(n/PLAN.length)+1}; }
+function prinCounts(days){ const lim=new Date(); lim.setDate(lim.getDate()-days); const L=lim.toISOString().slice(0,10), t=today(); const c={}; S.seances.filter(s=>s.date<=t&&s.date>=L).forEach(s=>(s.prin||[]).forEach(id=>c[id]=(c[id]||0)+1)); return c; }
 const initials = n => n.trim().split(/\s+/).map(x=>x[0]).slice(0,2).join("").toUpperCase();
 
 // ================== EN-TÊTE ==================
@@ -182,12 +206,12 @@ function renderHeader(){
 }
 
 // ================== NAVIGATION ==================
-let tab = "accueil", ideesMode = "gen", filt = {type:"", theme:"", q:"", fav:false}, seanceFiltre="toutes";
+let tab = "accueil", ideesMode = "gen", filt = {type:"", theme:"", q:"", fav:false, coach:""}, seanceFiltre="toutes";
 document.querySelectorAll("nav.tabs button").forEach(b=>b.onclick=()=>go(b.dataset.tab));
 function go(t){ tab=t; document.querySelectorAll("nav.tabs button").forEach(b=>b.classList.toggle("on",b.dataset.tab===t)); render(); window.scrollTo(0,0); }
 function render(){
   renderHeader();
-  ({accueil:vAccueil, idees:vIdees, seances:vSeances, effectif:vEffectif})[tab]();
+  ({accueil:vAccueil, idees:vIdees, projet:vProjet, seances:vSeances, effectif:vEffectif})[tab]();
   renderDraftBar();
 }
 
@@ -222,6 +246,15 @@ function vAccueil(){
     h += `<h2>Thèmes les plus travaillés</h2><div class="card themebars">`+
       top.map(([k,v])=>`<div class="r"><b>${esc(k)}</b><div class="bar"><i style="width:${Math.round(v/mx*100)}%"></i></div><span class="small">${v}</span></div>`).join("")+`</div>`;
   }
+  { const sp=semainePlan(); const c=prinCounts(28); const act=prinActifs();
+    const moins = act.slice().sort((a,b)=>(c[a.id]||0)-(c[b.id]||0))[0];
+    h += `<h2>Mon projet de jeu</h2><div class="card">`;
+    if(sp) h += `<div class="small" style="font-weight:800;color:var(--pitch)">SEMAINE ${sp.n} · ${esc(sp.w.t.toUpperCase())}</div><p style="margin:4px 0 10px">${esc(sp.w.obj)}</p>
+      <div class="pchips">${sp.w.pr.map(id=>prinById(id)).filter(Boolean).map(p=>`<span>${MOMENTS[p.m].ico} ${esc(p.t)}</span>`).join("")}</div>
+      <button class="btn acc full" style="margin-top:12px" onclick="genSemaine()">⚡ Générer la séance de la semaine</button>`;
+    else h += `<p style="margin:0 0 10px">Indique la date de ta prise en main dans l'onglet <b>Projet</b> pour suivre ton plan semaine par semaine.</p><button class="btn ghost full" onclick="go('projet')">🧠 Ouvrir mon projet</button>`;
+    if(moins && S.seances.length) h += `<p class="small" style="margin:12px 0 0">💡 Principe le moins travaillé ce mois-ci : <b>${esc(moins.t)}</b> · <a href="#" onclick="genPrin('${moins.id}');return false">générer une séance</a></p>`;
+    h += `</div>`; }
   h += `<h2>Dernières séances</h2>`;
   h += passees.length ? passees.slice(0,3).map(sessCard).join("") :
     `<div class="card empty"><div>📋</div>Aucune séance enregistrée.<br>Commence par en générer une !</div>`;
@@ -243,7 +276,9 @@ function genView(){
   const g = S.gen || {theme:"", duree:S.settings.duree, nb:12};
   let h = `<div class="card">
     <label class="f" style="margin-top:0">Thème principal</label>
-    <select class="in" id="gTheme"><option value="">🎲 Au hasard</option>${THEMES.map(t=>`<option ${g.theme===t?"selected":""}>${t}</option>`).join("")}</select>
+    <select class="in" id="gTheme"><option value="">🎲 Au hasard</option>
+      <optgroup label="🧠 Mon projet de jeu">${prinActifs().map(p=>`<option value="p:${p.id}" ${g.theme==="p:"+p.id?"selected":""}>${MOMENTS[p.m].ico} ${esc(p.t)}</option>`).join("")}</optgroup>
+      <optgroup label="Thèmes">${THEMES.map(t=>`<option ${g.theme===t?"selected":""}>${t}</option>`).join("")}</optgroup></select>
     <div class="grid2">
       <div><label class="f">Durée</label><select class="in" id="gDuree">${[45,60,75,90,105,120].map(d=>`<option value="${d}" ${+g.duree===d?"selected":""}>${d} min</option>`).join("")}</select></div>
       <div><label class="f">Joueurs présents</label><input class="in" id="gNb" type="number" min="2" max="30" value="${g.nb||12}"></div>
@@ -259,21 +294,36 @@ function genView(){
   }
   return h;
 }
-function generer(){
-  const theme = $("#gTheme").value, duree=+$("#gDuree").value, nb=+$("#gNb").value||12;
-  const themeChoisi = theme || rand(THEMES.filter(t=>t!=="Coordination"));
+function generer(){ genCore($("#gTheme").value, +$("#gDuree").value, +$("#gNb").value||12); }
+function genPrin(id){ genCore("p:"+id, S.settings.duree, (S.gen&&S.gen.nb)||12); ideesMode="gen"; go("idees"); }
+function genSemaine(){ const sp=semainePlan(); if(!sp) return; const ids=sp.w.pr.filter(id=>prinById(id)?.actif!==false);
+  genCore("p:"+ids[0], S.settings.duree, (S.gen&&S.gen.nb)||12, ids, "Semaine "+sp.n+" · "+sp.w.t); ideesMode="gen"; go("idees"); }
+function genCore(theme, duree, nb, prinList, titre){
+  let prins = prinList || (theme.startsWith("p:") ? [theme.slice(2)] : []);
+  const P = prins.map(prinById).filter(Boolean);
+  const themeChoisi = titre || (P.length ? P[0].t : (theme || rand(THEMES.filter(t=>t!=="Coordination"))));
   const structure = [["echauffement",.15],["technique",.22],["situation",.25],["match",.3],["calme",.08]];
   const blocs = [];
   structure.forEach(([type,part])=>{
-    const ex = pickExo(type, themeChoisi, nb, blocs.map(b=>b.exId));
+    const ex = P.length ? pickExoPrin(type, P, nb, blocs.map(b=>b.exId)) : pickExo(type, themeChoisi, nb, blocs.map(b=>b.exId));
     if(ex) blocs.push({exId:ex.id, titre:ex.t, duree:Math.max(5, Math.round(duree*part/5)*5)});
   });
   // ajuster pour tomber pile sur la durée
   const tot = blocs.reduce((a,b)=>a+b.duree,0); const m = blocs.find(b=>exoById(b.exId).type==="match");
   if(m) m.duree = Math.max(10, m.duree + (duree-tot));
-  S.gen = {theme, duree, nb, themeChoisi, blocs}; save(); render();
+  const prin = [...new Set([...prins, ...blocs.flatMap(b=>exoById(b.exId)?.pr||[])])].filter(id=>prinById(id));
+  S.gen = {theme, duree, nb, themeChoisi, blocs, prins, prin}; save(); render();
 }
 function nbOk(e,nb){ const [a,b]=e.j.split("-").map(Number); return nb>=a; }
+function pickExoPrin(type, P, nb, exclude){
+  let pool = EXOS.filter(e=>e.type===type && okCat(e) && !exclude.includes(e.id));
+  const fit = pool.filter(e=>nbOk(e,nb)); if(fit.length) pool=fit;
+  const ids=P.map(p=>p.id);
+  const a = pool.filter(e=>(e.pr||[]).some(x=>ids.includes(x)));
+  if(a.length) return rand(a);
+  const th = P.flatMap(p=>p.th||[]); const b = pool.filter(e=>e.th.some(x=>th.includes(x)));
+  return rand(b.length?b:pool) || null;
+}
 function pickExo(type, theme, nb, exclude){
   let pool = EXOS.filter(e=>e.type===type && okCat(e) && !exclude.includes(e.id));
   const fit = pool.filter(e=>nbOk(e,nb));
@@ -285,14 +335,15 @@ function swapBloc(i, where){
   const list = where==="gen" ? S.gen.blocs : S.draft.blocs;
   const cur = exoById(list[i].exId); if(!cur) return toast("Bloc personnalisé : modifie-le directement");
   const theme = where==="gen" ? S.gen.themeChoisi : (S.draft.theme||"");
-  const ex = pickExo(cur.type, theme, where==="gen"?S.gen.nb:99, list.map(b=>b.exId));
+  const P = where==="gen" ? (S.gen.prins||[]).map(prinById).filter(Boolean) : (S.draft.prin||[]).map(prinById).filter(Boolean);
+  const ex = P.length ? pickExoPrin(cur.type, P, where==="gen"?S.gen.nb:99, list.map(b=>b.exId)) : pickExo(cur.type, theme, where==="gen"?S.gen.nb:99, list.map(b=>b.exId));
   if(!ex) return toast("Pas d'autre exercice de ce type pour cette catégorie");
   list[i] = {exId:ex.id, titre:ex.t, duree:list[i].duree};
   save(); where==="gen" ? render() : renderEditor();
 }
 function genToDraft(){
   const g=S.gen;
-  S.draft = {id:null, date:today(), theme:g.themeChoisi, blocs:g.blocs.map(b=>({...b})), presents:[], note:0, comm:"", objectif:""};
+  S.draft = {id:null, date:today(), theme:g.themeChoisi, blocs:g.blocs.map(b=>({...b})), presents:[], note:0, comm:"", objectif:(g.prins&&g.prins.length? g.prins.map(id=>prinById(id)?.t).filter(Boolean).join(" + ") : ""), prin:[...(g.prins&&g.prins.length?g.prins:(g.prin||[]))]};
   save(); openEditor();
 }
 function libView(){
@@ -303,6 +354,7 @@ function libView(){
     ${Object.entries(TYPES).map(([k,v])=>`<button class="chip ${filt.type===k?"on":""}" onclick="filt.type=filt.type==='${k}'?'':'${k}';render()">${v.ico} ${v.nom}</button>`).join("")}
   </div>
   <div class="chips">
+    ${Object.entries(COACHS).map(([k,c])=>`<button class="chip ${filt.coach===k?"on":""}" onclick="filt.coach=filt.coach==='${k}'?'':'${k}';render()">${c.nom}</button>`).join("")}
     <button class="chip ${!filt.theme?"on":""}" onclick="filt.theme='';render()">Tous thèmes</button>
     ${THEMES.map(t=>`<button class="chip ${filt.theme===t?"on":""}" onclick="filt.theme=filt.theme==='${t}'?'':'${t}';render()">${t}</button>`).join("")}
   </div>
@@ -310,14 +362,14 @@ function libView(){
 }
 function libList(){
   const q = filt.q.trim().toLowerCase();
-  const l = EXOS.filter(e=>okCat(e) && (!filt.type||e.type===filt.type) && (!filt.theme||e.th.includes(filt.theme)) && (!filt.fav||S.favoris.includes(e.id))
+  const l = EXOS.filter(e=>okCat(e) && (!filt.type||e.type===filt.type) && (!filt.theme||e.th.includes(filt.theme)) && (!filt.fav||S.favoris.includes(e.id)) && (!filt.coach||(e.co||[]).includes(filt.coach))
     && (!q || (e.t+" "+e.th.join(" ")+" "+e.der).toLowerCase().includes(q)));
   return l.length ? `<p class="small" style="margin:2px 4px 8px">${l.length} exercice${l.length>1?"s":""} pour les ${CATS[S.settings.cat]}</p>`+l.map(exoRow).join("")
     : `<div class="empty"><div>🔎</div>Aucun exercice ne correspond.</div>`;
 }
 function exoRow(e){
   return `<button class="exo" onclick="openExo('${e.id}')"><div class="ico">${TYPES[e.type].ico}</div>
-    <div class="tx"><b>${esc(e.t)}</b><span>${TYPES[e.type].nom} · ${e.th.slice(0,2).join(", ")} · ${e.j.replace("-","–")} joueurs</span></div>
+    <div class="tx"><b>${esc(e.t)}</b><span>${TYPES[e.type].nom} · ${e.th.slice(0,2).join(", ")} · ${e.j.replace("-","–")} joueurs</span>${e.co&&e.co.length?`<div style="margin-top:4px">${coachChips(e.co)}</div>`:""}</div>
     <div class="side">${S.favoris.includes(e.id)?"⭐ ":""}${e.d}'</div></button>`;
 }
 function blocRow(b,i,where){
@@ -362,15 +414,112 @@ function openExo(id){
   <div class="sec"><h4>▶️ Déroulement</h4><p>${esc(e.der)}</p></div>
   <div class="sec"><h4>📣 Consignes du coach</h4><ul>${e.cons.map(c=>`<li>${esc(c)}</li>`).join("")}</ul></div>
   <div class="sec"><h4>🔀 Variantes</h4><ul>${e.var.map(c=>`<li>${esc(c)}</li>`).join("")}</ul></div>
+  ${(e.pr||[]).length?`<div class="sec"><h4>🧠 Mon projet de jeu</h4><ul>${e.pr.map(prinById).filter(Boolean).map(p=>`<li>${MOMENTS[p.m].ico} ${esc(p.t)}</li>`).join("")}</ul>${e.co&&e.co.length?`<div style="margin-top:8px">${coachChips(e.co)}</div>`:""}</div>`:""}
   <div class="sec"><h4>🏷️ Thèmes</h4><p>${e.th.join(" · ")}</p></div>
   <button class="btn full" onclick="addToDraft('${e.id}')">➕ Ajouter à ma séance</button>`);
   $("#favBtn").onclick=()=>{ const i=S.favoris.indexOf(id); i>=0?S.favoris.splice(i,1):S.favoris.push(id); save(); $("#favBtn").classList.toggle("on"); toast(i>=0?"Retiré des favoris":"Ajouté aux favoris ⭐"); if(tab==="idees"&&ideesMode==="lib") $("#libList").innerHTML=libList(); };
 }
 function addToDraft(id){
   const e=exoById(id);
-  if(!S.draft) S.draft = {id:null, date:today(), theme:e.th[0], blocs:[], presents:[], note:0, comm:"", objectif:""};
-  S.draft.blocs.push({exId:e.id, titre:e.t, duree:e.d}); save();
+  if(!S.draft) S.draft = {id:null, date:today(), theme:e.th[0], blocs:[], presents:[], note:0, comm:"", objectif:"", prin:[]};
+  S.draft.blocs.push({exId:e.id, titre:e.t, duree:e.d}); addPrin(e); save();
   closeSheet(); renderDraftBar(); toast("Ajouté à la séance en préparation");
+}
+
+// ================== PROJET DE JEU ==================
+let projetSec = "principes";
+function systemeSVG(key){
+  const sy=SYSTEMES[key]; if(!sy) return "";
+  return `<svg class="pitch-svg" viewBox="0 0 200 260" role="img" aria-label="Système ${esc(key)}" style="max-width:340px;margin:0 auto 10px">
+    <defs><pattern id="sv" width="200" height="40" patternUnits="userSpaceOnUse"><rect width="200" height="20" fill="#14774a"/><rect y="20" width="200" height="20" fill="#118045"/></pattern></defs>
+    <rect width="200" height="260" fill="url(#sv)"/>
+    <g fill="none" stroke="#fff" stroke-opacity=".7" stroke-width="1.5"><rect x="8" y="8" width="184" height="244"/><line x1="8" y1="130" x2="192" y2="130"/><circle cx="100" cy="130" r="20"/>
+    <rect x="55" y="8" width="90" height="34"/><rect x="55" y="218" width="90" height="34"/></g>
+    ${sy.pos.map(([c,x,y])=>{const X=8+x/100*184, Y=8+y/100*244; return `<g><circle cx="${X}" cy="${Y}" r="12" fill="${c==="GB"?"#f2b632":"#0b3b27"}" stroke="#d6f43a" stroke-width="2"/><text x="${X}" y="${Y+4}" text-anchor="middle" font-size="9" font-weight="800" fill="${c==="GB"?"#1d2a05":"#fff"}" font-family="sans-serif">${c}</text></g>`;}).join("")}
+  </svg>`;
+}
+function vProjet(){
+  const P=S.projet; const c=prinCounts(28); const sp=semainePlan();
+  let h = `<div class="card hero"><h3>🧠 Mon projet de jeu</h3><p style="margin:0">${esc(P.identite)}</p>
+    <div style="margin-top:10px">${coachChips(P.coachs)}</div></div>
+  <div class="seg">${[["principes","Principes"],["systeme","Système"],["plan","Plan"],["coachs","Coachs"]].map(([k,l])=>`<button class="${projetSec===k?"on":""}" onclick="projetSec='${k}';render()">${l}</button>`).join("")}</div>`;
+  if(projetSec==="principes"){
+    h += `<p class="small" style="margin:0 4px 10px">Tes principes, classés par moment du match. Touche ⚡ pour générer une séance sur un principe, ou ✏️ pour l'adapter à ta façon.</p>`;
+    Object.entries(MOMENTS).forEach(([m,mo])=>{
+      const L=P.principes.filter(p=>p.m===m); if(!L.length) return;
+      h += `<h2>${mo.ico} ${mo.nom}</h2>`;
+      h += L.map(p=>`<div class="prin ${p.actif?"":"off"}">
+        <div class="ph"><b>${esc(p.t)}</b><span class="cnt" title="Séances sur 4 semaines">${c[p.id]||0}×</span></div>
+        <p>${esc(p.d)}</p>
+        ${(p.mots||[]).length?`<div class="mots">${p.mots.map(w=>`<span>« ${esc(w)} »</span>`).join("")}</div>`:""}
+        <div class="pf"><div>${coachChips(p.co)}</div><div class="acts">
+          <button onclick="editPrin('${p.id}')" aria-label="Modifier">✏️</button>
+          <button onclick="togglePrinActif('${p.id}')" aria-label="Activer">${p.actif?"👁️":"🚫"}</button>
+          ${p.actif?`<button class="go" onclick="genPrin('${p.id}')">⚡ Séance</button>`:""}</div></div></div>`).join("");
+    });
+    h += `<button class="btn ghost full" style="margin-top:8px" onclick="editPrin('')">➕ Ajouter un principe à moi</button>`;
+  }
+  if(projetSec==="systeme"){
+    h += `<div class="chips">${Object.keys(SYSTEMES).map(k=>`<button class="chip ${P.systeme===k?"on":""}" onclick="S.projet.systeme='${k}';save();render()">${k}</button>`).join("")}</div>
+    <div class="card">${systemeSVG(P.systeme)}<p style="margin:0">${esc(SYSTEMES[P.systeme].desc)}</p></div>
+    <h2>Rôle de chaque poste</h2>`;
+    const codes=[...new Set(SYSTEMES[P.systeme].pos.map(x=>x[0]))];
+    h += codes.map(cd=>`<div class="player"><div class="avatar" style="${cd==="GB"?"background:#f2b632;color:#1d2a05":""}">${cd}</div><div class="tx"><span style="color:var(--ink);font-size:14px">${esc((P.roles&&P.roles[cd])||ROLES[cd]||"")}</span></div><button class="iconbtn" style="background:#eef2ec;color:var(--ink)" onclick="editRole('${cd}')" aria-label="Modifier">✏️</button></div>`).join("");
+    h += `<p class="small" style="margin:8px 4px">Idée « Guardiola / Luis Enrique » : on défend en 3-3-1 et, avec le ballon, un défenseur latéral monte au milieu pour passer en 2-3-2. Compare les deux schémas avec les boutons du haut.</p>`;
+  }
+  if(projetSec==="plan"){
+    h += `<div class="card"><label class="f" style="margin-top:0">Date de ta prise en main de l'équipe</label>
+      <input class="in" type="date" id="pDebut" value="${esc(P.debut)}">
+      <p class="small" style="margin:8px 0 0">Le plan suit un cycle de 6 semaines. Une fois les 6 semaines finies, il recommence pour consolider les principes.</p></div>`;
+    h += PLAN.map((w,i)=>{ const cur= sp && ((sp.n-1)%PLAN.length)===i;
+      return `<div class="card week ${cur?"cur":""}"><div class="toprow"><div class="wn">S${w.s}</div><div style="flex:1"><b>${esc(w.t)}</b>${cur?` <span class="badge" style="font-size:11px">Cette semaine</span>`:""}</div></div>
+      <p style="margin:8px 0">${esc(w.obj)}</p>
+      <div class="pchips">${w.pr.map(prinById).filter(Boolean).map(p=>`<span>${MOMENTS[p.m].ico} ${esc(p.t)}</span>`).join("")}</div>
+      <button class="btn ${cur?"acc":"ghost"} sm" style="margin-top:10px" onclick="genPlan(${i})">⚡ Générer une séance</button></div>`; }).join("");
+    h += `<div class="card"><b>🤝 Conseils pour une prise en main en cours de saison</b><ul style="margin:8px 0 0;padding-left:20px">
+      <li>Les deux premières semaines, observe plus que tu ne changes : repère les leaders et les joueurs en manque de confiance.</li>
+      <li>Ne change pas tout d'un coup : installe 2 ou 3 règles simples et répète-les à chaque séance.</li>
+      <li>Garde quelque chose de l'ancien coach si ça marchait, ça rassure les joueurs.</li>
+      <li>Fais en sorte que chaque joueur se sente important, et valorise les efforts plus que les résultats.</li>
+      <li>Parle aux parents dès le début : ton projet, tes règles, ton planning.</li></ul></div>`;
+  }
+  if(projetSec==="coachs"){
+    h += Object.entries(COACHS).map(([k,co])=>`<div class="card coach" style="border-left:6px solid ${co.coul}">
+      <div class="toprow"><b style="flex:1;font-size:17px">${co.nom}</b><span class="small">${co.club}</span></div>
+      <p style="margin:6px 0 8px;font-style:italic">${esc(co.idee)}</p>
+      <div class="small" style="font-weight:800;color:var(--pitch);margin-bottom:4px">CE QUE JE LUI PRENDS</div>
+      <ul style="margin:0;padding-left:20px">${co.prend.map(x=>`<li>${esc(x)}</li>`).join("")}</ul>
+      <button class="btn ghost sm" style="margin-top:10px" onclick="filt={type:'',theme:'',q:'',fav:false,coach:'${k}'};ideesMode='lib';go('idees')">📚 Ses exercices (${EXOS.filter(e=>(e.co||[]).includes(k)&&okCat(e)).length})</button></div>`).join("");
+    h += `<div class="card"><label class="f" style="margin-top:0">Mon identité de jeu (en une phrase)</label><textarea class="in" id="pId" rows="3">${esc(P.identite)}</textarea>
+      <button class="btn sm" style="margin-top:8px" onclick="S.projet.identite=$('#pId').value.trim()||S.projet.identite;save();render();toast('Identité enregistrée')">💾 Enregistrer</button></div>
+      <button class="btn red full" onclick="if(confirm('Remettre le projet de jeu par défaut ? Tes modifications de principes seront perdues.')){S.projet=defaultProjet();save();render();}">↺ Réinitialiser le projet</button>`;
+  }
+  $("#view").innerHTML=h;
+  const d=$("#pDebut"); if(d) d.onchange=()=>{ S.projet.debut=d.value; save(); render(); toast("Plan démarré ✅"); };
+}
+function genPlan(i){ const w=PLAN[i]; const ids=w.pr.filter(id=>prinById(id)); genCore("p:"+ids[0], S.settings.duree, (S.gen&&S.gen.nb)||12, ids, "S"+w.s+" · "+w.t); ideesMode="gen"; go("idees"); }
+function togglePrinActif(id){ const p=prinById(id); p.actif=!p.actif; save(); render(); }
+function editRole(cd){
+  const cur=(S.projet.roles&&S.projet.roles[cd])||ROLES[cd]||"";
+  sheet(`<div class="grab"></div><div class="sh-head"><h3>Rôle : ${cd}</h3><button class="closebtn" onclick="closeSheet()">✕</button></div>
+  <div class="card"><textarea class="in" id="rT" rows="4">${esc(cur)}</textarea><button class="btn full" style="margin-top:12px" id="rOk">💾 Enregistrer</button></div>`);
+  $("#rOk").onclick=()=>{ S.projet.roles=S.projet.roles||{}; S.projet.roles[cd]=$("#rT").value.trim(); save(); closeSheet(); render(); };
+}
+function editPrin(id){
+  const p = id ? prinById(id) : {id:"u"+uid(), m:"ballon", t:"", d:"", co:[], th:[], mots:[], actif:true};
+  sheet(`<div class="grab"></div><div class="sh-head"><h3>${id?"Modifier le principe":"Nouveau principe"}</h3><button class="closebtn" onclick="closeSheet()">✕</button></div>
+  <div class="card"><label class="f" style="margin-top:0">Moment du jeu</label><select class="in" id="eM">${Object.entries(MOMENTS).map(([k,v])=>`<option value="${k}" ${p.m===k?"selected":""}>${v.ico} ${v.nom}</option>`).join("")}</select>
+  <label class="f">Principe</label><input class="in" id="eT" value="${esc(p.t)}" placeholder="Ex : Le gardien joue toujours court">
+  <label class="f">Explication</label><textarea class="in" id="eD" rows="3">${esc(p.d)}</textarea>
+  <label class="f">Mots-clés de coaching (séparés par une virgule)</label><input class="in" id="eW" value="${esc((p.mots||[]).join(", "))}">
+  <label class="f">Thèmes liés (pour trouver des exercices)</label><div class="pres" id="eTh">${THEMES.map(t=>`<button data-t="${t}" class="${(p.th||[]).includes(t)?"on":""}">${t}</button>`).join("")}</div>
+  <button class="btn full" style="margin-top:14px" id="eOk">💾 Enregistrer</button>
+  ${id&&id.startsWith("u")?`<button class="btn red full" style="margin-top:10px" id="eDel">🗑️ Supprimer</button>`:""}</div>`);
+  document.querySelectorAll("#eTh button").forEach(b=>b.onclick=()=>b.classList.toggle("on"));
+  $("#eOk").onclick=()=>{ const t=$("#eT").value.trim(); if(!t) return toast("Écris le principe");
+    Object.assign(p,{m:$("#eM").value,t,d:$("#eD").value.trim(),mots:$("#eW").value.split(",").map(x=>x.trim()).filter(Boolean),th:[...document.querySelectorAll("#eTh button.on")].map(b=>b.dataset.t)});
+    if(!id) S.projet.principes.push(p); save(); closeSheet(); render(); toast("Principe enregistré"); };
+  const del=$("#eDel"); if(del) del.onclick=()=>{ if(!confirm("Supprimer ce principe ?")) return; S.projet.principes=S.projet.principes.filter(x=>x.id!==id); save(); closeSheet(); render(); };
 }
 
 // ================== SÉANCES ==================
@@ -399,7 +548,7 @@ function vSeances(){
   $("#view").innerHTML = h;
 }
 function newSeance(){
-  if(!S.draft) S.draft = {id:null, date:today(), theme:"", blocs:[], presents:[], note:0, comm:"", objectif:""};
+  if(!S.draft) S.draft = {id:null, date:today(), theme:"", blocs:[], presents:[], note:0, comm:"", objectif:"", prin:[]};
   save(); openEditor();
 }
 function openSeance(id){
@@ -426,6 +575,8 @@ function renderEditor(){
   <h2>Programme · ${tot} min</h2>
   ${d.blocs.length? d.blocs.map((b,i)=>blocRow(b,i,"draft")).join("") : `<div class="card empty" style="padding:18px"><div>⚽</div>Ajoute des exercices depuis la bibliothèque ou crée ton propre exercice.</div>`}
   <div class="grid2"><button class="btn ghost" onclick="pickFromLib()">📚 Bibliothèque</button><button class="btn ghost" onclick="editCustom(-1)">✏️ Exercice perso</button></div>
+  <h2>Principes de jeu travaillés</h2>
+  <div class="card"><div class="pres">${prinActifs().map(p=>`<button class="${(d.prin||[]).includes(p.id)?"on":""}" onclick="togglePrin('${p.id}')">${MOMENTS[p.m].ico} ${esc(p.t)}</button>`).join("")}</div></div>
   <h2>Présences ${S.joueurs.length?`· ${d.presents.length}/${S.joueurs.length}`:""}</h2>
   <div class="card">${S.joueurs.length?`<div class="pres">${S.joueurs.map(j=>`<button class="${d.presents.includes(j.id)?"on":""}" onclick="togglePres('${j.id}')">${esc(j.nom)}</button>`).join("")}</div>
     <div class="toprow" style="margin-top:10px"><button class="btn ghost sm" onclick="allPres(true)">Tous présents</button><button class="btn ghost sm" onclick="allPres(false)">Aucun</button></div>`
@@ -451,6 +602,7 @@ function syncDraft(){
 }
 function moveBloc(i,dir){ syncDraft(); const b=S.draft.blocs, j=i+dir; if(j<0||j>=b.length) return; [b[i],b[j]]=[b[j],b[i]]; save(); renderEditor(); }
 function delBloc(i){ syncDraft(); S.draft.blocs.splice(i,1); save(); renderEditor(); }
+function togglePrin(id){ syncDraft(); S.draft.prin=S.draft.prin||[]; const p=S.draft.prin, i=p.indexOf(id); i>=0?p.splice(i,1):p.push(id); save(); renderEditor(); }
 function togglePres(id){ syncDraft(); const p=S.draft.presents, i=p.indexOf(id); i>=0?p.splice(i,1):p.push(id); save(); renderEditor(); }
 function allPres(v){ syncDraft(); S.draft.presents = v? S.joueurs.map(j=>j.id):[]; save(); renderEditor(); }
 function setNote(n){ syncDraft(); S.draft.note = S.draft.note===n?0:n; save(); renderEditor(); }
@@ -490,7 +642,8 @@ function pickFromLib(){
   document.querySelectorAll("#pkChips .chip").forEach(c=>c.onclick=()=>{f.type=c.dataset.t;draw();});
   draw();
 }
-function pickAdd(id){ const e=exoById(id); S.draft.blocs.push({exId:id,titre:e.t,duree:e.d}); save(); toast("« "+e.t+" » ajouté"); openEditor(); }
+function addPrin(e){ S.draft.prin=S.draft.prin||[]; (e.pr||[]).forEach(x=>{ if(prinById(x)&&!S.draft.prin.includes(x)&&S.draft.prin.length<3) S.draft.prin.push(x); }); }
+function pickAdd(id){ const e=exoById(id); S.draft.blocs.push({exId:id,titre:e.t,duree:e.d}); addPrin(e); save(); toast("« "+e.t+" » ajouté"); openEditor(); }
 function editCustom(i){
   syncDraft();
   const b = i>=0 ? S.draft.blocs[i] : {titre:"",duree:15,notes:""};
@@ -552,6 +705,7 @@ $("#btnSettings").onclick=()=>{
   <div class="card"><label class="f" style="margin-top:0">Club</label><input class="in" id="sClub" value="${esc(S.settings.club)}" placeholder="Ex : US Grenay">
   <label class="f">Nom de l'équipe</label><input class="in" id="sEq" value="${esc(S.settings.equipe)}" placeholder="Ex : U11 A">
   <label class="f">Catégorie (adapte les exercices)</label><select class="in" id="sCat">${CATS.map((c,i)=>`<option value="${i}" ${S.settings.cat===i?"selected":""}>${c}</option>`).join("")}</select>
+  <label class="f">Format de jeu</label><select class="in" id="sFmt">${[["5","Foot à 5"],["8","Foot à 8"],["11","Foot à 11"]].map(([v,l])=>`<option value="${v}" ${S.settings.format===v?"selected":""}>${l}</option>`).join("")}</select>
   <label class="f">Durée habituelle d'une séance</label><select class="in" id="sDur">${[45,60,75,90,105,120].map(d=>`<option value="${d}" ${S.settings.duree===d?"selected":""}>${d} min</option>`).join("")}</select>
   <button class="btn full" style="margin-top:14px" id="sOk">💾 Enregistrer</button></div>
   <h2>Sauvegarde</h2>
@@ -559,7 +713,7 @@ $("#btnSettings").onclick=()=>{
   <div class="grid2"><button class="btn ghost" id="sExp">⬇️ Sauvegarder</button><button class="btn ghost" id="sImp">⬆️ Restaurer</button></div>
   <input type="file" id="sFile" accept=".json,application/json" hidden></div>
   <p class="small" style="text-align:center">Coach Foot · ${EXOS.length} exercices</p>`);
-  $("#sOk").onclick=()=>{ S.settings.club=$("#sClub").value.trim(); S.settings.equipe=$("#sEq").value.trim()||"Mon équipe"; S.settings.cat=+$("#sCat").value; S.settings.duree=+$("#sDur").value; S.settings.vu=true; if(S.gen){S.gen.duree=S.settings.duree;} save(); closeSheet(); render(); toast("Réglages enregistrés"); };
+  $("#sOk").onclick=()=>{ S.settings.club=$("#sClub").value.trim(); S.settings.equipe=$("#sEq").value.trim()||"Mon équipe"; S.settings.cat=+$("#sCat").value; S.settings.duree=+$("#sDur").value; S.settings.vu=true; S.settings.format=$("#sFmt").value; if(S.gen){S.gen.duree=S.settings.duree;} save(); closeSheet(); render(); toast("Réglages enregistrés"); };
   $("#sExp").onclick=()=>{ const blob=new Blob([JSON.stringify(S,null,1)],{type:"application/json"}); const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download="coachfoot-sauvegarde-"+today()+".json"; a.click(); };
   $("#sImp").onclick=()=>$("#sFile").click();
   $("#sFile").onchange=e=>{ const f=e.target.files[0]; if(!f) return; f.text().then(t=>{ try{ const d=JSON.parse(t); if(!d.seances) throw 0; if(!confirm("Remplacer les données actuelles par cette sauvegarde ?")) return; S=Object.assign(defaultState(),d); save(); closeSheet(); render(); toast("Sauvegarde restaurée ✅"); }catch(_){ toast("Fichier non reconnu"); } }); };
